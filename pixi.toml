@@ -7,7 +7,6 @@ platforms = ["linux-64"]
 [dependencies]
 flutter-sdk = "*"  # from the hadron channel
 patchelf = "*"
-mesa-gles = { path = "packages/mesa" }
 cmake = "*"
 ninja = "*"
 pkg-config = "*"
@@ -32,4 +31,4 @@ build = { cmd = "flutter build linux --release", depends-on = ["deps"] }
 install-desktop = { cmd = "linux/packaging/install-local.sh", depends-on = ["build"] }
 package = "pixi build --output-dir output"
 package-mesa = "pixi build --path packages/mesa --output-dir output"
-ci = { depends-on = ["package-mesa", "package"] }
+ci = { depends-on = ["package", "package-mesa"] }

@@ -13,6 +13,7 @@ export HOME=$SRC_DIR/.home PUB_CACHE=$SRC_DIR/.pub-cache
 export CC=$BUILD_PREFIX/bin/clang CXX=$BUILD_PREFIX/bin/clang++
 export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig
 export CFLAGS="-I$PREFIX/include" CXXFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib -Wl,-rpath-link,$PREFIX/lib"
+pkg-config --print-errors --exists gtk+-3.0 || { ls "$PREFIX/lib/pkgconfig" | head -50; exit 1; }
 flutter config --no-analytics --no-cli-animations >/dev/null 2>&1 || true
 flutter pub get
 flutter build linux --release
