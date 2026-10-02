@@ -46,4 +46,4 @@ tests:
 
 about:
   summary: Flutter clone of pavucontrol (PulseAudio / PipeWire volume control)
-  homepage: https://github.com/nandithebull/pavucontrol_flutter
+  homepage: https://github.com/nandi-conda/pavucontrol_flutter
