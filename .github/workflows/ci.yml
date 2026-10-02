@@ -42,8 +42,8 @@ jobs:
           # Skips files already on the channel; bump the version or build number to publish a new build.
           pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output output-mesa -name "*.conda")
           # Copy the conda-forge runtime dependencies too, so the channel installs on its own.
-          ci/fetch-deps.sh deps output output-mesa
-          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing deps/*
+          ci/fetch-deps.sh nandi-testing deps output output-mesa
+          if [ -n "$(ls deps)" ]; then pixi exec rattler-build upload prefix -c nandi-testing --skip-existing deps/*; fi
         shell: bash
         env:
           # Optional; if unset, rattler-build uses trusted publishing (OIDC).
