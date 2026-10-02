@@ -20,16 +20,25 @@ jobs:
       # Mesa only changes when its recipe does, so reuse the built package otherwise.
       - name: Restore Mesa package
         id: mesa-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: output-mesa
           key: mesa-${{ runner.os }}-${{ hashFiles('packages/mesa/**') }}
       - name: Build Mesa
         if: steps.mesa-cache.outputs.cache-hit != 'true'
         run: pixi build --path packages/mesa --output-dir output-mesa
+      # Save right away so a failure in a later step doesn't throw the build away.
+      - name: Save Mesa package
+        if: steps.mesa-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: output-mesa
+          key: ${{ steps.mesa-cache.outputs.cache-primary-key }}
       - name: Publish to prefix.dev/nandi-testing
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          # An empty PREFIX_API_KEY is sent as a (bad) key; unset it to fall back to OIDC.
+          [ -n "$PREFIX_API_KEY" ] || unset PREFIX_API_KEY
           pixi exec rattler-build upload prefix -c nandi-testing $(find output -name "*.conda")
           # A cached Mesa is usually already on the channel.
           pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output-mesa -name "*.conda")
