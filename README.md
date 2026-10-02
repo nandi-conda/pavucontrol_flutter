@@ -12,6 +12,12 @@ Works with PulseAudio and PipeWire (via pipewire-pulse) by driving `pactl` / `pa
 - "Show:" filters (Applications / Virtual Streams, Hardware / Virtual / Monitors …)
 - Live updates via `pactl subscribe`; follows system light/dark theme
 
+## Install
+Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing). Its dependencies (gtk3, glib, pulseaudio-client) come from conda-forge, so list both channels:
+```sh
+pixi global install -c https://prefix.dev/nandi-testing -c conda-forge pavucontrol_flutter
+```
+
 ## Requirements
 - `pactl` ≥ 16 (needs `pactl -f json`) and `parec` — Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)
 - Flutter SDK with Linux desktop deps: `sudo pacman -S clang cmake ninja pkgconf gtk3`
