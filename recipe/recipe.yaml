@@ -22,7 +22,14 @@ requirements:
     - clangxx
   host:
     - gtk3
-    - zlib  # gio-2.0.pc requires zlib.pc
+    # .pc files that gtk3's Requires(.private) chain needs; conda splits them from lib* runtime pkgs
+    - zlib
+    - expat
+    - libpng
+    - freetype
+    - libffi
+    - pcre2
+    - bzip2
     - glib >=2.90.0,<3
   run:
     - gtk3
