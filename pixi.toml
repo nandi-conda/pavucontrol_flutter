@@ -1,0 +1,21 @@
+[workspace]
+name = "pavucontrol_flutter"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# Flutter SDK itself is not on conda-forge; install it separately
+# (https://docs.flutter.dev/get-started/install/linux) and keep it on PATH.
+[dependencies]
+cmake = "*"
+ninja = "*"
+pkg-config = "*"
+clangxx = "*"
+gtk3 = "*"
+pulseaudio-client = "*"  # provides pactl at runtime
+
+[tasks]
+deps = "flutter pub get"
+run = { cmd = "flutter run -d linux", depends-on = ["deps"] }
+test = { cmd = "flutter test", depends-on = ["deps"] }
+build = { cmd = "flutter build linux --release", depends-on = ["deps"] }
+install-desktop = { cmd = "linux/packaging/install-local.sh", depends-on = ["build"] }

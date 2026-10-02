@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Volume Control
+GenericName=Audio Mixer
+Comment=PulseAudio / PipeWire volume control
+Exec=pavucontrol_flutter
+Icon=dev.v.pavucontrol_flutter
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;
+Keywords=audio;sound;volume;mixer;pulseaudio;pipewire;
+StartupWMClass=dev.v.pavucontrol_flutter
