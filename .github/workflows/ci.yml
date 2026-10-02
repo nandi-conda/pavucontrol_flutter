@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  id-token: write  # prefix.dev trusted publishing
+
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -13,6 +17,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
       - run: pixi run ci
+      - name: Publish to prefix.dev/nandi-testing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pixi exec rattler-build upload prefix -c nandi-testing $(find output -name "*.conda")
+        shell: bash
+        env:
+          # Optional; if unset, rattler-build uses trusted publishing (OIDC).
+          PREFIX_API_KEY: ${{ secrets.PREFIX_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: conda-packages
