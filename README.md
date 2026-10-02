@@ -13,9 +13,9 @@ Works with PulseAudio and PipeWire (via pipewire-pulse) by driving `pactl` / `pa
 - Live updates via `pactl subscribe`; follows system light/dark theme
 
 ## Install
-Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing). Its dependencies (gtk3, glib, pulseaudio-client) come from conda-forge, so list both channels:
+Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing), together with the conda-forge packages they need, so the channel works on its own:
 ```sh
-pixi global install -c https://prefix.dev/nandi-testing -c conda-forge pavucontrol_flutter
+pixi global install -c https://prefix.dev/nandi-testing pavucontrol_flutter
 ```
 
 ## Requirements

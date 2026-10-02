@@ -39,9 +39,11 @@ jobs:
         run: |
           # An empty PREFIX_API_KEY is sent as a (bad) key; unset it to fall back to OIDC.
           [ -n "$PREFIX_API_KEY" ] || unset PREFIX_API_KEY
-          pixi exec rattler-build upload prefix -c nandi-testing $(find output -name "*.conda")
-          # A cached Mesa is usually already on the channel.
-          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output-mesa -name "*.conda")
+          # Skips files already on the channel; bump the version or build number to publish a new build.
+          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output output-mesa -name "*.conda")
+          # Copy the conda-forge runtime dependencies too, so the channel installs on its own.
+          ci/fetch-deps.sh deps output output-mesa
+          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing deps/*
         shell: bash
         env:
           # Optional; if unset, rattler-build uses trusted publishing (OIDC).
