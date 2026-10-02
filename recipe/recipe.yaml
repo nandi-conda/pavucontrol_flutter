@@ -1,0 +1,41 @@
+# Built by pixi-build (pixi-build-rattler-build); run `pixi run package`.
+context:
+  name: pavucontrol_flutter
+  version: "1.0.0"
+  app_id: dev.v.pavucontrol_flutter
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+build:
+  number: 0
+  script: build.sh
+
+requirements:
+  build:
+    - patchelf
+    - flutter-sdk
+    - cmake
+    - ninja
+    - pkg-config
+    - clangxx
+  host:
+    - gtk3
+    - glib >=2.90.0,<3
+  run:
+    - gtk3
+    - glib >=2.90.0,<3
+    - pulseaudio-client  # pactl / parec
+
+tests:
+  - package_contents:
+      bin:
+        - pavucontrol_flutter
+      files:
+        - share/applications/${{ app_id }}.desktop
+        - share/icons/hicolor/scalable/apps/${{ app_id }}.svg
+
+about:
+  summary: Flutter clone of pavucontrol (PulseAudio / PipeWire volume control)
+  homepage: https://github.com/nandithebull/pavucontrol_flutter

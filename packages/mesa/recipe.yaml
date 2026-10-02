@@ -1,0 +1,98 @@
+schema_version: 1
+
+context:
+  mesa_version: "26.2.4"
+  libdrm_version: "2.4.134"
+
+recipe:
+  name: mesa-gles
+  version: ${{ mesa_version }}
+
+outputs:
+  # conda-forge stops at libdrm 2.4.129; radeonsi needs >= 2.4.133 (and system Mesa
+  # needs the matching libdrm_amdgpu symbols).
+  - package:
+      name: libdrm
+      version: ${{ libdrm_version }}
+    source:
+      url: https://dri.freedesktop.org/libdrm/libdrm-${{ libdrm_version }}.tar.xz
+      sha256: ac5e74d157830eb8bee44c6a6bf3ad49774ef0dd2a72bdad74a8f20308b52a95
+    build:
+      script: build_libdrm.sh
+    requirements:
+      build:
+        - ${{ compiler('c') }}
+        - ${{ stdlib('c') }}
+        - meson
+        - ninja
+        - pkg-config
+      host:
+        - libpciaccess
+      run_exports:
+        - ${{ pin_subpackage('libdrm', upper_bound='x.x') }}
+    tests:
+      - package_contents:
+          lib:
+            - libdrm.so.2
+            - libdrm_amdgpu.so.1
+
+  - package:
+      name: mesa-gles
+      version: ${{ mesa_version }}
+    source:
+      url: https://archive.mesa3d.org/mesa-${{ mesa_version }}.tar.xz
+      sha256: bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9
+    build:
+      script: build_mesa.sh
+    requirements:
+      build:
+        - ${{ compiler('c') }}
+        - ${{ stdlib('c') }}
+        - ${{ compiler('cxx') }}
+        - meson
+        - ninja
+        - pyyaml
+        - mako
+        - packaging
+        - flex
+        - bison
+        - pkg-config
+        - glslang
+        - wayland
+        - wayland-protocols
+      host:
+        - ${{ pin_subpackage('libdrm', exact=True) }}
+        - expat
+        - zlib
+        - zstd
+        - spirv-tools
+        - elfutils
+        - llvm
+        - llvmdev
+        - wayland
+        - wayland-protocols
+        - libxcb
+        - xorg-libx11
+        - xorg-libxext
+        - xorg-libxxf86vm
+        - xorg-xorgproto
+        - xorg-libxrandr
+        - xorg-libxshmfence
+        - libglvnd-devel
+        - libegl-devel
+        - libglx-devel
+      run:
+        - ${{ pin_subpackage('libdrm', exact=True) }}
+        - libegl
+        - libgl
+      run_exports:
+        - ${{ pin_subpackage('mesa-gles', upper_bound='x.x') }}
+    tests:
+      - package_contents:
+          lib:
+            - libEGL_mesa.so.0
+            - libgallium-${{ mesa_version }}.so
+            - dri/swrast_dri.so
+            - dri/radeonsi_dri.so
+          files:
+            - share/glvnd/egl_vendor.d/50_mesa.json

@@ -1,0 +1,7 @@
+[package]
+name = "mesa-gles"
+version = "26.2.4"
+
+# conda-forge's mesalib has no GLES / Wayland EGL / radeonsi, all of which Flutter needs.
+[package.build]
+backend = { name = "pixi-build-rattler-build", version = "*" }

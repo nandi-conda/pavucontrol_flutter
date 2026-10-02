@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # first run compiles Mesa (LLVM) from source
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+      - run: pixi run ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conda-packages
+          path: output/**/*.conda
