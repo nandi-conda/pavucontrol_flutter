@@ -12,14 +12,27 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # first run compiles Mesa (LLVM) from source
+    timeout-minutes: 120  # a Mesa cache miss compiles Mesa (LLVM) from source
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
-      - run: pixi run ci
+      - run: pixi run package
+      # Mesa only changes when its recipe does, so reuse the built package otherwise.
+      - name: Restore Mesa package
+        id: mesa-cache
+        uses: actions/cache@v4
+        with:
+          path: output-mesa
+          key: mesa-${{ runner.os }}-${{ hashFiles('packages/mesa/**') }}
+      - name: Build Mesa
+        if: steps.mesa-cache.outputs.cache-hit != 'true'
+        run: pixi build --path packages/mesa --output-dir output-mesa
       - name: Publish to prefix.dev/nandi-testing
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: pixi exec rattler-build upload prefix -c nandi-testing $(find output -name "*.conda")
+        run: |
+          pixi exec rattler-build upload prefix -c nandi-testing $(find output -name "*.conda")
+          # A cached Mesa is usually already on the channel.
+          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output-mesa -name "*.conda")
         shell: bash
         env:
           # Optional; if unset, rattler-build uses trusted publishing (OIDC).
@@ -27,4 +40,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: conda-packages
-          path: output/**/*.conda
+          path: |
+            output/**/*.conda
+            output-mesa/**/*.conda
