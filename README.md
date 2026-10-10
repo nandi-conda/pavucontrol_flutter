@@ -17,6 +17,7 @@ Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://p
 ```sh
 pixi global install -c https://prefix.dev/nandi-testing pavucontrol_flutter
 ```
+This also adds a "Volume Control" entry to your desktop's app menu (via menuinst).
 
 ## Requirements
 - `libpulse.so.0` at runtime (pixi installs pull in `pulseaudio-libs`, libpulse without the CLIs) — otherwise Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)

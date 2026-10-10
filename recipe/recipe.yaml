@@ -9,7 +9,7 @@ package:
   version: ${{ version }}
 
 build:
-  number: 1
+  number: 2
   script: build.sh
 
 requirements:
@@ -43,6 +43,8 @@ tests:
       files:
         - share/applications/${{ app_id }}.desktop
         - share/icons/hicolor/scalable/apps/${{ app_id }}.svg
+        - Menu/${{ name }}.json
+        - Menu/${{ app_id }}.png
 
 about:
   summary: Flutter clone of pavucontrol (PulseAudio / PipeWire volume control)

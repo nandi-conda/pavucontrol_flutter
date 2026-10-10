@@ -24,6 +24,9 @@ cp -a "$bundle/." "$PREFIX/lib/pavucontrol_flutter/"
 ln -sf ../lib/pavucontrol_flutter/pavucontrol_flutter "$PREFIX/bin/pavucontrol_flutter"
 
 install -Dm644 "$pkg/$id.desktop" "$PREFIX/share/applications/$id.desktop"
+# menuinst: conda / `pixi global install` turn this into a desktop menu entry.
+install -Dm644 "$pkg/menu.json" "$PREFIX/Menu/pavucontrol_flutter.json"
+install -Dm644 "$pkg/icons/256x256/$id.png" "$PREFIX/Menu/$id.png"
 install -Dm644 "$pkg/$id.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$id.svg"
 for dir in "$pkg"/icons/*/; do
   size=$(basename "$dir")

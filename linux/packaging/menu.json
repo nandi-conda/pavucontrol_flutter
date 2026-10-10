@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://schemas.conda.io/menuinst-1.schema.json",
+  "menu_name": "Volume Control",
+  "menu_items": [
+    {
+      "name": "Volume Control",
+      "description": "PulseAudio / PipeWire volume control",
+      "command": ["{{ PREFIX }}/bin/pavucontrol_flutter"],
+      "icon": "{{ MENU_DIR }}/dev.v.pavucontrol_flutter.png",
+      "activate": false,
+      "terminal": false,
+      "platforms": {
+        "linux": {
+          "GenericName": "Audio Mixer",
+          "Categories": ["AudioVideo", "Audio", "Mixer"],
+          "Keywords": ["audio", "sound", "volume", "mixer", "pulseaudio", "pipewire"],
+          "StartupWMClass": "dev.v.pavucontrol_flutter"
+        }
+      }
+    }
+  ]
+}
