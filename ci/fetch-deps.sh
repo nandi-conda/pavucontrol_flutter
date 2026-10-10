@@ -31,7 +31,8 @@ for i in 1 2 3 4 5; do
   sleep 15
 done
 
-grep -oE 'https://conda\.anaconda\.org/conda-forge/[^ ]+' "$work/pixi.lock" | sort -u |
+# No match just means the channel already has everything (grep would exit 1 under pipefail).
+{ grep -oE 'https://conda\.anaconda\.org/conda-forge/[^ ]+' "$work/pixi.lock" || true; } | sort -u |
   while read -r url; do curl -fsSL --retry 3 -o "$dest/$(basename "$url")" "$url"; done
 echo "fetched $(ls "$dest" | wc -l) dependency packages into $dest"
 rm -rf "$work"
