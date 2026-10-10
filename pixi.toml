@@ -12,7 +12,7 @@ ninja = "*"
 pkg-config = "*"
 clangxx = "*"
 gtk3 = "*"
-pulseaudio-client = "*"  # provides libpulse.so.0 at runtime
+pulseaudio-client = "*"  # libpulse.so.0 for `flutter run`/tests (installs ship pulseaudio-libs instead)
 glib = ">=2.90.0,<3"
 
 [package]
@@ -31,4 +31,5 @@ build = { cmd = "flutter build linux --release", depends-on = ["deps"] }
 install-desktop = { cmd = "linux/packaging/install-local.sh", depends-on = ["build"] }
 package = "pixi build --output-dir output"
 package-mesa = "pixi build --path packages/mesa --output-dir output"
-ci = { depends-on = ["package", "package-mesa"] }
+package-pulseaudio-libs = "pixi build --path packages/pulseaudio-libs --output-dir output"
+ci = { depends-on = ["package", "package-mesa", "package-pulseaudio-libs"] }

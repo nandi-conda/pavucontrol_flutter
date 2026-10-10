@@ -1,0 +1,47 @@
+context:
+  version: "17.0"
+
+package:
+  name: pulseaudio-libs
+  version: ${{ version }}
+
+build:
+  number: 0
+  script: build.sh
+
+requirements:
+  build:
+    # Repackaged from here: copied out of the build env, so none of its files clash with $PREFIX.
+    - pulseaudio-client ${{ version }}.*
+  # pulseaudio-client 17.0's own runtime deps.
+  host:
+    - dbus >=1.16.2,<2.0a0
+    - libglib >=2.86.1,<3.0a0
+    - libiconv >=1.18,<2.0a0
+    - libsndfile >=1.2.2,<1.3.0a0
+    - libsystemd0 >=257.10
+    - libxcb >=1.17.0,<2.0a0
+  # The host deps above add themselves via run_exports; these have none.
+  run:
+    - __glibc >=2.17,<3.0.a0
+    - libgcc >=14
+    - libsystemd0 >=257.10
+  ignore_run_exports:
+    from_package:
+      - pulseaudio-client
+
+tests:
+  - package_contents:
+      lib:
+        - libpulse.so.0
+        - libpulse-simple.so.0
+        - pulseaudio/libpulsecommon-${{ version }}.so
+      files:
+        not_exists:
+          - bin/pactl
+          - bin/parec
+
+about:
+  summary: PulseAudio client libraries (libpulse) without the command-line tools
+  license: LGPL-2.1-or-later
+  homepage: https://www.freedesktop.org/wiki/Software/PulseAudio/

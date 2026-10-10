@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
       - run: pixi run package
+      # libpulse without the pulseaudio-client CLIs; a quick repackage, so no cache.
+      - run: pixi build --path packages/pulseaudio-libs --output-dir output-pulse
       # Mesa only changes when its recipe does, so reuse the built package otherwise.
       - name: Restore Mesa package
         id: mesa-cache
@@ -40,9 +42,9 @@ jobs:
           # An empty PREFIX_API_KEY is sent as a (bad) key; unset it to fall back to OIDC.
           [ -n "$PREFIX_API_KEY" ] || unset PREFIX_API_KEY
           # Skips files already on the channel; bump the version or build number to publish a new build.
-          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output output-mesa -name "*.conda")
+          pixi exec rattler-build upload prefix -c nandi-testing --skip-existing $(find output output-mesa output-pulse -name "*.conda")
           # Copy the conda-forge runtime dependencies too, so the channel installs on its own.
-          ci/fetch-deps.sh nandi-testing deps output output-mesa
+          ci/fetch-deps.sh nandi-testing deps output output-mesa output-pulse
           if [ -n "$(ls deps)" ]; then pixi exec rattler-build upload prefix -c nandi-testing --skip-existing deps/*; fi
         shell: bash
         env:
@@ -54,3 +56,4 @@ jobs:
           path: |
             output/**/*.conda
             output-mesa/**/*.conda
+            output-pulse/**/*.conda
