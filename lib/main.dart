@@ -9,7 +9,7 @@ import 'widgets/tiles.dart';
 
 void main() {
   final mock = Platform.environment['PAVU_MOCK'] == '1';
-  final backend = mock ? MockBackend() : PactlBackend();
+  final backend = mock ? MockBackend() : LibpulseBackend();
   backend.start();
   runApp(VolumeControlApp(backend: backend));
 }

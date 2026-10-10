@@ -2,7 +2,7 @@
 
 A Flutter (Linux desktop) clone of **pavucontrol** — PulseAudio Volume Control — with every menu opening instantly (no menu, page, tab, ripple or button-state animations).
 
-Works with PulseAudio and PipeWire (via pipewire-pulse) by driving `pactl` / `parec`.
+Works with PulseAudio and PipeWire (via pipewire-pulse) by talking to the server directly through libpulse (`dart:ffi`), without shelling out to any CLI.
 
 ## Features
 - **Playback / Recording**: per-app volume, mute, lock/unlock channels, move stream to another device ("on …" / "from …"), live level meter, right-click → Terminate
@@ -10,7 +10,7 @@ Works with PulseAudio and PipeWire (via pipewire-pulse) by driving `pactl` / `pa
 - **Output / Input Devices**: volume (with dB + Silence / 100% / Base marks), mute, per-channel sliders, set as fallback, port selection, latency offset (Advanced)
 - **Configuration**: card profile selection
 - "Show:" filters (Applications / Virtual Streams, Hardware / Virtual / Monitors …)
-- Live updates via `pactl subscribe`; follows system light/dark theme
+- Live updates via libpulse event subscription; follows system light/dark theme
 
 ## Install
 Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing), together with the conda-forge packages they need, so the channel works on its own:
@@ -19,7 +19,7 @@ pixi global install -c https://prefix.dev/nandi-testing pavucontrol_flutter
 ```
 
 ## Requirements
-- `pactl` ≥ 16 (needs `pactl -f json`) and `parec` — Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)
+- `libpulse.so.0` at runtime — Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)
 - Flutter SDK with Linux desktop deps: `sudo pacman -S clang cmake ninja pkgconf gtk3`
 
 ## Run

@@ -34,7 +34,7 @@ requirements:
   run:
     - gtk3
     - glib >=2.90.0,<3
-    - pulseaudio-client  # pactl / parec
+    - pulseaudio-client  # libpulse.so.0, loaded via dart:ffi
 
 tests:
   - package_contents:

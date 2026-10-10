@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
+import 'dart:ffi';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
+import 'libpulse.dart';
 import 'model.dart';
 
 /// Our own meter streams carry this so they can be hidden from the Recording tab.
@@ -34,238 +34,668 @@ abstract class PulseBackend {
   Stream<double> meter(String source, {int? streamIndex});
 }
 
-/// Starts a long-running helper tied to our lifetime: when our stdin pipe closes
-/// (we exit, crash, or call [stopTied]) the helper is killed, so no orphans are left.
-Future<Process> startTied(String cmd, List<String> args) => Process.start('sh', [
-      '-c',
-      // Background jobs get /dev/null as stdin, so hand the watcher our stdin via fd 3.
-      r'exec 3<&0; "$@" 3<&- & p=$!; (cat <&3 >/dev/null; kill $p 2>/dev/null) & exec 3<&-; wait $p',
-      'sh',
-      cmd,
-      ...args,
-    ]);
+typedef _Issue = Pointer<Void> Function(Arena a, Pointer<NativeFunction<pa_context_success_cb>> cb, Pointer<Void> ud);
 
-void stopTied(Process? p) {
-  if (p == null) return;
-  p.stdin.close().catchError((_) {});
+class _Meter {
+  final String source;
+  final int? streamIndex;
+  final StreamController<double> ctrl;
+  Pointer<Void> stream = nullptr;
+  _Meter(this.source, this.streamIndex, this.ctrl);
 }
 
-/// Talks to PulseAudio / pipewire-pulse via the `pactl` and `parec` CLIs.
-class PactlBackend extends PulseBackend {
-  Process? _subscriber;
+class _Snapshot {
+  List<PaDevice> sinks = const [], sources = const [];
+  List<PaStream> sinkInputs = const [], sourceOutputs = const [];
+  List<PaCard> cards = const [];
+  String? defaultSink, defaultSource;
+  final sinkAcc = <PaDevice>[], sourceAcc = <PaDevice>[];
+  final sinkInputAcc = <PaStream>[], sourceOutputAcc = <PaStream>[];
+  final cardAcc = <PaCard>[];
+  int pending = 6;
+}
+
+/// Talks to PulseAudio / pipewire-pulse directly through libpulse (dart:ffi).
+///
+/// Runs a plain `pa_mainloop` on the UI isolate, iterated without blocking from a timer, so
+/// every libpulse callback runs synchronously on this thread and can read the info structs
+/// while they are still valid.
+class LibpulseBackend extends PulseBackend {
+  LibPulse? _pa;
+  Pointer<Void> _ml = nullptr;
+  Pointer<Void> _ctx = nullptr;
+  bool _ready = false;
+  bool _disposed = false;
+  Timer? _tick;
   Timer? _debounce;
+  Timer? _retry;
+
   bool _refreshing = false;
   bool _dirty = false;
-  bool _disposed = false;
+  int _gen = 0;
+  _Snapshot? _snap;
 
-  // One in-flight pactl per key; newest pending args win (keeps slider drags smooth).
-  final Map<String, List<String>> _pending = {};
+  // One in-flight operation per key; newest pending request wins (keeps slider drags smooth).
+  final Map<String, _Issue> _pending = {};
   final Set<String> _inFlight = {};
+  final Map<int, String> _opKeys = {};
+  int _nextOp = 1;
+
+  final Map<int, _Meter> _meters = {};
+  int _nextMeter = 1;
+
+  late final _stateCb = NativeCallable<pa_context_notify_cb>.isolateLocal(_onState);
+  late final _subscribeCb = NativeCallable<pa_context_subscribe_cb>.isolateLocal(_onEvent);
+  late final _successCb = NativeCallable<pa_context_success_cb>.isolateLocal(_onSuccess);
+  late final _sinkCb = NativeCallable<pa_device_info_cb>.isolateLocal(_onSink);
+  late final _sourceCb = NativeCallable<pa_device_info_cb>.isolateLocal(_onSource);
+  late final _sinkInputCb = NativeCallable<pa_sink_input_info_cb>.isolateLocal(_onSinkInput);
+  late final _sourceOutputCb = NativeCallable<pa_source_output_info_cb>.isolateLocal(_onSourceOutput);
+  late final _cardCb = NativeCallable<pa_card_info_cb>.isolateLocal(_onCard);
+  late final _serverCb = NativeCallable<pa_server_info_cb>.isolateLocal(_onServer);
+  late final _readCb = NativeCallable<pa_stream_request_cb>.isolateLocal(_onRead);
 
   @override
   Future<void> start() async {
-    await _refresh();
-    if (state.value.error != null) {
-      // Server not up yet (or restarting): keep trying, like pavucontrol does.
-      Future.delayed(const Duration(seconds: 2), () {
-        if (!_disposed) start();
-      });
+    if (_disposed) return;
+    if (_pa == null) {
+      try {
+        _pa = LibPulse(openLibpulse());
+      } catch (_) {
+        state.value = const PaState(
+          loaded: true,
+          error: 'libpulse was not found. Install libpulse / pulseaudio-client.',
+        );
+        return;
+      }
+      _ml = _pa!.mainloop_new();
+    }
+    _connect();
+  }
+
+  void _connect() {
+    final pa = _pa!;
+    _ctx = using((a) {
+      final props = pa.proplist_new();
+      void set(String k, String v) =>
+          pa.proplist_sets(props, k.toNativeUtf8(allocator: a), v.toNativeUtf8(allocator: a));
+      set('application.id', 'dev.v.pavucontrol_flutter');
+      set('application.icon_name', 'multimedia-volume-control');
+      final ctx = pa.context_new_with_proplist(
+        pa.mainloop_get_api(_ml),
+        'pavucontrol-flutter'.toNativeUtf8(allocator: a),
+        props,
+      );
+      pa.proplist_free(props);
+      return ctx;
+    });
+    pa.context_set_state_callback(_ctx, _stateCb.nativeFunction, nullptr);
+    if (pa.context_connect(_ctx, nullptr, 0, nullptr) < 0) {
+      _failed();
       return;
     }
-    try {
-      _subscriber = await startTied('pactl', ['subscribe']);
-      _subscriber!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-        if (line.startsWith('Event')) _scheduleRefresh();
-      });
-      _subscriber!.exitCode.then((_) {
-        stopTied(_subscriber);
-        if (!_disposed) {
-          // Server restarted or went away: retry.
-          Future.delayed(const Duration(seconds: 2), () {
-            if (!_disposed) start();
-          });
-        }
-      });
-    } catch (_) {}
+    _kick();
   }
+
+  void _onState(Pointer<Void> c, Pointer<Void> _) {
+    if (c != _ctx) return;
+    final s = _pa!.context_get_state(c);
+    if (s == paContextReady) {
+      _ready = true;
+      _pa!.context_set_subscribe_callback(_ctx, _subscribeCb.nativeFunction, nullptr);
+      _unref(_pa!.context_subscribe(_ctx, paSubscriptionMaskAll, nullptr, nullptr));
+      for (final m in _meters.values) {
+        _openMeter(m);
+      }
+      _refresh();
+    } else if (s == paContextFailed || s == paContextTerminated) {
+      // Tear down outside of libpulse's dispatch.
+      Timer.run(_failed);
+    }
+  }
+
+  /// Connection failed or the server went away: report it and retry, like pavucontrol does.
+  void _failed() {
+    if (_ctx == nullptr) return;
+    final pa = _pa!;
+    final err = pa.strerror(pa.context_errno(_ctx)).toDartString();
+    _teardownContext();
+    state.value = PaState(loaded: true, error: 'Connection failure: $err');
+    _retry?.cancel();
+    _retry = Timer(const Duration(seconds: 2), () {
+      if (!_disposed) _connect();
+    });
+  }
+
+  void _teardownContext() {
+    final pa = _pa!;
+    for (final m in _meters.values) {
+      _closeMeterStream(m);
+    }
+    pa.context_set_state_callback(_ctx, nullptr, nullptr);
+    pa.context_set_subscribe_callback(_ctx, nullptr, nullptr);
+    pa.context_disconnect(_ctx);
+    pa.context_unref(_ctx);
+    _ctx = nullptr;
+    _ready = false;
+    _refreshing = false;
+    _dirty = false;
+    _snap = null;
+    _pending.clear();
+    _inFlight.clear();
+    _opKeys.clear();
+  }
+
+  // --- main loop -------------------------------------------------------------------------
+
+  bool get _busy => !_ready || _meters.isNotEmpty || _inFlight.isNotEmpty || _refreshing;
+
+  void _iterate() {
+    _tick = null;
+    if (_disposed || _ctx == nullptr) return;
+    for (var i = 0; i < 64; i++) {
+      if (_pa!.mainloop_iterate(_ml, 0, nullptr) <= 0) break;
+    }
+    _tick ??= Timer(Duration(milliseconds: _busy ? 16 : 100), _iterate);
+  }
+
+  /// Flush requests to the server now instead of on the next tick.
+  void _kick() {
+    _tick?.cancel();
+    _tick = Timer(Duration.zero, _iterate);
+  }
+
+  void _unref(Pointer<Void> op) {
+    if (op != nullptr) _pa!.operation_unref(op);
+  }
+
+  // --- state ---------------------------------------------------------------------------
+
+  void _onEvent(Pointer<Void> c, int t, int idx, Pointer<Void> _) => _scheduleRefresh();
 
   void _scheduleRefresh() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 40), _refresh);
   }
 
-  Future<dynamic> _json(List<String> args) async {
-    final r = await Process.run('pactl', ['-f', 'json', ...args], stdoutEncoding: utf8);
-    if (r.exitCode != 0) {
-      throw '${r.stderr}'.trim().isEmpty ? 'pactl ${args.join(' ')} failed' : '${r.stderr}'.trim();
-    }
-    return jsonDecode(r.stdout as String);
-  }
-
-  Future<void> _refresh() async {
+  void _refresh() {
+    if (!_ready || _disposed) return;
     if (_refreshing) {
       _dirty = true;
       return;
     }
     _refreshing = true;
-    try {
-      final res = await Future.wait([
-        _json(['list', 'sinks']),
-        _json(['list', 'sources']),
-        _json(['list', 'sink-inputs']),
-        _json(['list', 'source-outputs']),
-        _json(['list', 'cards']),
-        _json(['info']),
-      ]);
-      List<Map> maps(dynamic l) => l is List ? l.whereType<Map>().toList() : const [];
-      final info = res[5] is Map ? res[5] as Map : const {};
-      state.value = PaState(
-        sinks: [for (final j in maps(res[0])) PaDevice.parse(DeviceKind.sink, j)],
-        sources: [for (final j in maps(res[1])) PaDevice.parse(DeviceKind.source, j)],
-        sinkInputs: [for (final j in maps(res[2])) PaStream.parse(DeviceKind.sink, j)],
-        sourceOutputs: [
-          for (final j in maps(res[3]))
-            if (asProps(j['properties'])['application.id'] != meterAppId) PaStream.parse(DeviceKind.source, j)
-        ],
-        cards: [for (final j in maps(res[4])) PaCard.parse(j)],
-        defaultSink: asName(info['default_sink_name']),
-        defaultSource: asName(info['default_source_name']),
-        loaded: true,
-      );
-    } on ProcessException {
-      state.value = const PaState(
-          loaded: true, error: '`pactl` was not found. Install pulseaudio-utils / libpulse (pactl ≥ 16).');
-    } on FormatException {
-      state.value = const PaState(
-          loaded: true, error: 'pactl did not return JSON. pactl ≥ 16 (with -f json) is required.');
-    } catch (e) {
-      state.value = PaState(loaded: true, error: 'Connection failure: $e');
-    } finally {
-      _refreshing = false;
-      if (_dirty) {
-        _dirty = false;
-        _scheduleRefresh();
+    _snap = _Snapshot();
+    final pa = _pa!;
+    final ud = Pointer<Void>.fromAddress(++_gen);
+    final ops = [
+      pa.get_sink_info_list(_ctx, _sinkCb.nativeFunction, ud),
+      pa.get_source_info_list(_ctx, _sourceCb.nativeFunction, ud),
+      pa.get_sink_input_info_list(_ctx, _sinkInputCb.nativeFunction, ud),
+      pa.get_source_output_info_list(_ctx, _sourceOutputCb.nativeFunction, ud),
+      pa.get_card_info_list(_ctx, _cardCb.nativeFunction, ud),
+      pa.get_server_info(_ctx, _serverCb.nativeFunction, ud),
+    ];
+    for (final op in ops) {
+      if (op == nullptr) {
+        _snap!.pending--;
+      } else {
+        pa.operation_unref(op);
       }
     }
+    _kick();
+    if (_snap!.pending == 0) _finishRefresh();
   }
 
-  void _run(String key, List<String> args) {
-    _pending[key] = args;
-    if (_inFlight.contains(key)) return;
-    _drain(key);
+  _Snapshot? _snapFor(Pointer<Void> ud) => ud.address == _gen ? _snap : null;
+
+  void _partDone(_Snapshot s) {
+    if (--s.pending == 0) _finishRefresh();
   }
 
-  Future<void> _drain(String key) async {
-    _inFlight.add(key);
-    while (_pending.containsKey(key)) {
-      final args = _pending.remove(key)!;
-      try {
-        await Process.run('pactl', args);
-      } catch (_) {}
+  void _finishRefresh() {
+    final s = _snap!;
+    _snap = null;
+    state.value = PaState(
+      sinks: s.sinks,
+      sources: s.sources,
+      sinkInputs: s.sinkInputs,
+      sourceOutputs: s.sourceOutputs,
+      cards: s.cards,
+      defaultSink: s.defaultSink,
+      defaultSource: s.defaultSource,
+      loaded: true,
+    );
+    _refreshing = false;
+    if (_dirty) {
+      _dirty = false;
+      _scheduleRefresh();
     }
-    _inFlight.remove(key);
   }
+
+  void _onSink(Pointer<Void> c, Pointer<pa_device_info> i, int eol, Pointer<Void> ud) {
+    final s = _snapFor(ud);
+    if (s == null) return;
+    if (eol != 0) {
+      s.sinks = List.of(s.sinkAcc);
+      return _partDone(s);
+    }
+    s.sinkAcc.add(_device(DeviceKind.sink, i.ref));
+  }
+
+  void _onSource(Pointer<Void> c, Pointer<pa_device_info> i, int eol, Pointer<Void> ud) {
+    final s = _snapFor(ud);
+    if (s == null) return;
+    if (eol != 0) {
+      s.sources = List.of(s.sourceAcc);
+      return _partDone(s);
+    }
+    s.sourceAcc.add(_device(DeviceKind.source, i.ref));
+  }
+
+  void _onSinkInput(Pointer<Void> c, Pointer<pa_sink_input_info> i, int eol, Pointer<Void> ud) {
+    final s = _snapFor(ud);
+    if (s == null) return;
+    if (eol != 0) {
+      s.sinkInputs = List.of(s.sinkInputAcc);
+      return _partDone(s);
+    }
+    final r = i.ref;
+    s.sinkInputAcc.add(
+      PaStream(
+        kind: DeviceKind.sink,
+        index: r.index,
+        client: r.client == paInvalidIndex ? null : r.client,
+        device: r.sink == paInvalidIndex ? -1 : r.sink,
+        mute: r.mute != 0,
+        corked: r.corked != 0,
+        volume: r.has_volume != 0 ? _volume(r.volume, r.channel_map) : ChannelVolumes.empty,
+        props: _props(r.proplist),
+      ),
+    );
+  }
+
+  void _onSourceOutput(Pointer<Void> c, Pointer<pa_source_output_info> i, int eol, Pointer<Void> ud) {
+    final s = _snapFor(ud);
+    if (s == null) return;
+    if (eol != 0) {
+      s.sourceOutputs = List.of(s.sourceOutputAcc);
+      return _partDone(s);
+    }
+    final r = i.ref;
+    final props = _props(r.proplist);
+    if (props['application.id'] == meterAppId) return;
+    s.sourceOutputAcc.add(
+      PaStream(
+        kind: DeviceKind.source,
+        index: r.index,
+        client: r.client == paInvalidIndex ? null : r.client,
+        device: r.source == paInvalidIndex ? -1 : r.source,
+        mute: r.mute != 0,
+        corked: r.corked != 0,
+        volume: r.has_volume != 0 ? _volume(r.volume, r.channel_map) : ChannelVolumes.empty,
+        props: props,
+      ),
+    );
+  }
+
+  void _onCard(Pointer<Void> c, Pointer<pa_card_info> i, int eol, Pointer<Void> ud) {
+    final s = _snapFor(ud);
+    if (s == null) return;
+    if (eol != 0) {
+      s.cards = List.of(s.cardAcc);
+      return _partDone(s);
+    }
+    final r = i.ref;
+    final props = _props(r.proplist);
+    final profiles = <PaProfile>[
+      if (r.profiles2 != nullptr)
+        for (var k = 0; k < r.n_profiles; k++)
+          if (r.profiles2[k] != nullptr) _profile(r.profiles2[k].ref),
+    ]..sort((a, b) => b.priority.compareTo(a.priority));
+    final ports = <PaPort>[
+      for (var k = 0; k < r.n_ports; k++)
+        if (r.ports[k] != nullptr)
+          PaPort(
+            _str(r.ports[k].ref.name) ?? '',
+            _str(r.ports[k].ref.description) ?? _str(r.ports[k].ref.name) ?? '',
+            r.ports[k].ref.available != paPortAvailableNo,
+            r.ports[k].ref.priority,
+            r.ports[k].ref.latency_offset,
+          ),
+    ];
+    final name = _str(r.name) ?? '';
+    s.cardAcc.add(
+      PaCard(
+        r.index,
+        name,
+        props['device.description'] ?? name,
+        profiles,
+        r.active_profile2 == nullptr ? null : _str(r.active_profile2.ref.name),
+        ports,
+        props,
+      ),
+    );
+  }
+
+  void _onServer(Pointer<Void> c, Pointer<pa_server_info> i, Pointer<Void> ud) {
+    final s = _snapFor(ud);
+    if (s == null) return;
+    if (i != nullptr) {
+      s.defaultSink = _str(i.ref.default_sink_name);
+      s.defaultSource = _str(i.ref.default_source_name);
+    }
+    _partDone(s);
+  }
+
+  String? _str(Pointer<Utf8> p) => p == nullptr ? null : asName(p.toDartString());
+
+  Map<String, String> _props(Pointer<Void> pl) {
+    if (pl == nullptr) return const {};
+    final pa = _pa!;
+    final out = <String, String>{};
+    final it = calloc<Pointer<Void>>();
+    try {
+      while (true) {
+        final key = pa.proplist_iterate(pl, it);
+        if (key == nullptr) break;
+        final v = pa.proplist_gets(pl, key);
+        if (v != nullptr) out[key.toDartString()] = v.toDartString();
+      }
+    } finally {
+      calloc.free(it);
+    }
+    return out;
+  }
+
+  ChannelVolumes _volume(pa_cvolume v, pa_channel_map map) {
+    final n = math.min(v.channels, paChannelsMax);
+    return ChannelVolumes(
+      [
+        for (var k = 0; k < n; k++)
+          k < map.channels ? (_pa!.channel_position_to_string(map.map[k]).toDartString()) : 'aux$k',
+      ],
+      [for (var k = 0; k < n; k++) v.values[k]],
+    );
+  }
+
+  PaProfile _profile(pa_card_profile_info2 p) =>
+      PaProfile(_str(p.name) ?? '', _str(p.description) ?? _str(p.name) ?? '', p.available != 0, p.priority);
+
+  PaDevice _device(DeviceKind kind, pa_device_info i) {
+    final props = _props(i.proplist);
+    final name = _str(i.name) ?? '';
+    return PaDevice(
+      kind: kind,
+      index: i.index,
+      name: name,
+      description: _str(i.description) ?? name,
+      mute: i.mute != 0,
+      volume: _volume(i.volume, i.channel_map),
+      baseVolume: i.base_volume,
+      decibel: i.flags == 0 || i.flags & paDeviceDecibelVolume != 0,
+      hardware: i.flags & paDeviceHardware != 0 || props.containsKey('alsa.card') || props['device.api'] == 'bluez5',
+      monitorSource: kind == DeviceKind.sink ? _str(i.monitor_name) : null,
+      monitorOfSink: kind == DeviceKind.source
+          ? (_str(i.monitor_name) ?? (props['device.class'] == 'monitor' ? name : null))
+          : null,
+      ports: [
+        for (var k = 0; k < i.n_ports; k++)
+          if (i.ports[k] != nullptr)
+            PaPort(
+              _str(i.ports[k].ref.name) ?? '',
+              _str(i.ports[k].ref.description) ?? _str(i.ports[k].ref.name) ?? '',
+              i.ports[k].ref.available != paPortAvailableNo,
+              i.ports[k].ref.priority,
+            ),
+      ],
+      activePort: i.active_port == nullptr ? null : _str(i.active_port.ref.name),
+      card: i.card == paInvalidIndex ? null : i.card,
+      props: props,
+    );
+  }
+
+  // --- requests ------------------------------------------------------------------------
+
+  void _run(String key, _Issue issue) {
+    _pending[key] = issue;
+    if (_inFlight.contains(key)) return;
+    _issue(key);
+  }
+
+  void _issue(String key) {
+    final f = _pending.remove(key);
+    if (f == null || !_ready) {
+      _inFlight.remove(key);
+      return;
+    }
+    final id = _nextOp++;
+    _opKeys[id] = key;
+    _inFlight.add(key);
+    final op = using((a) => f(a, _successCb.nativeFunction, Pointer.fromAddress(id)));
+    if (op == nullptr) {
+      // Rejected locally (e.g. bad argument): nothing in flight, try the next one if queued.
+      _opKeys.remove(id);
+      _inFlight.remove(key);
+      if (_pending.containsKey(key)) _issue(key);
+      return;
+    }
+    _pa!.operation_unref(op);
+    _kick();
+  }
+
+  void _onSuccess(Pointer<Void> c, int success, Pointer<Void> ud) {
+    final key = _opKeys.remove(ud.address);
+    if (key == null) return;
+    _inFlight.remove(key);
+    if (_pending.containsKey(key)) _issue(key);
+  }
+
+  Pointer<pa_cvolume> _cvolume(Arena a, List<int> values, int channels) {
+    final v = values.length == 1 && channels > 1 ? List.filled(channels, values.first) : values;
+    final cv = a<pa_cvolume>();
+    cv.ref.channels = math.min(v.length, paChannelsMax);
+    for (var k = 0; k < cv.ref.channels; k++) {
+      cv.ref.values[k] = v[k].clamp(0, 0x7fffffff);
+    }
+    return cv;
+  }
+
+  Pointer<Utf8> Function(String) _s(Arena a) =>
+      (s) => s.toNativeUtf8(allocator: a);
 
   String _k(DeviceKind k) => k == DeviceKind.sink ? 'sink' : 'source';
+  String _sk(DeviceKind k) => k == DeviceKind.sink ? 'sink-input' : 'source-output';
+  bool _isSink(DeviceKind k) => k == DeviceKind.sink;
 
   @override
-  void setVolume(PaDevice d, List<int> v) =>
-      _run('vol-${_k(d.kind)}-${d.index}', ['set-${_k(d.kind)}-volume', d.name, ...v.map((e) => '$e')]);
+  void setVolume(PaDevice d, List<int> v) => _run('vol-${_k(d.kind)}-${d.index}', (a, cb, ud) {
+    final f = _isSink(d.kind) ? _pa!.set_sink_volume_by_name : _pa!.set_source_volume_by_name;
+    return f(_ctx, _s(a)(d.name), _cvolume(a, v, d.volume.values.length), cb, ud);
+  });
 
   @override
-  void setMute(PaDevice d, bool mute) =>
-      _run('mute-${_k(d.kind)}-${d.index}', ['set-${_k(d.kind)}-mute', d.name, mute ? '1' : '0']);
+  void setMute(PaDevice d, bool mute) => _run('mute-${_k(d.kind)}-${d.index}', (a, cb, ud) {
+    final f = _isSink(d.kind) ? _pa!.set_sink_mute_by_name : _pa!.set_source_mute_by_name;
+    return f(_ctx, _s(a)(d.name), mute ? 1 : 0, cb, ud);
+  });
 
   @override
-  void setDefault(PaDevice d) => _run('default-${_k(d.kind)}', ['set-default-${_k(d.kind)}', d.name]);
+  void setDefault(PaDevice d) => _run('default-${_k(d.kind)}', (a, cb, ud) {
+    final f = _isSink(d.kind) ? _pa!.set_default_sink : _pa!.set_default_source;
+    return f(_ctx, _s(a)(d.name), cb, ud);
+  });
 
   @override
-  void setPort(PaDevice d, String port) =>
-      _run('port-${_k(d.kind)}-${d.index}', ['set-${_k(d.kind)}-port', d.name, port]);
+  void setPort(PaDevice d, String port) => _run('port-${_k(d.kind)}-${d.index}', (a, cb, ud) {
+    final f = _isSink(d.kind) ? _pa!.set_sink_port_by_name : _pa!.set_source_port_by_name;
+    return f(_ctx, _s(a)(d.name), _s(a)(port), cb, ud);
+  });
 
   @override
-  void setLatencyOffset(String card, String port, int usec) =>
-      _run('lat-$card-$port', ['set-port-latency-offset', card, port, '$usec']);
-
-  String _s(DeviceKind k) => k == DeviceKind.sink ? 'sink-input' : 'source-output';
-
-  @override
-  void setStreamVolume(PaStream s, List<int> v) =>
-      _run('vol-${_s(s.kind)}-${s.index}', ['set-${_s(s.kind)}-volume', '${s.index}', ...v.map((e) => '$e')]);
+  void setLatencyOffset(String card, String port, int usec) => _run(
+    'lat-$card-$port',
+    (a, cb, ud) => _pa!.set_port_latency_offset(_ctx, _s(a)(card), _s(a)(port), usec, cb, ud),
+  );
 
   @override
-  void setStreamMute(PaStream s, bool mute) =>
-      _run('mute-${_s(s.kind)}-${s.index}', ['set-${_s(s.kind)}-mute', '${s.index}', mute ? '1' : '0']);
+  void setStreamVolume(PaStream s, List<int> v) => _run('vol-${_sk(s.kind)}-${s.index}', (a, cb, ud) {
+    final f = _isSink(s.kind) ? _pa!.set_sink_input_volume : _pa!.set_source_output_volume;
+    return f(_ctx, s.index, _cvolume(a, v, s.volume.values.length), cb, ud);
+  });
 
   @override
-  void moveStream(PaStream s, PaDevice target) =>
-      _run('move-${_s(s.kind)}-${s.index}', ['move-${_s(s.kind)}', '${s.index}', target.name]);
+  void setStreamMute(PaStream s, bool mute) => _run('mute-${_sk(s.kind)}-${s.index}', (a, cb, ud) {
+    final f = _isSink(s.kind) ? _pa!.set_sink_input_mute : _pa!.set_source_output_mute;
+    return f(_ctx, s.index, mute ? 1 : 0, cb, ud);
+  });
 
   @override
-  void killStream(PaStream s) => _run('kill-${_s(s.kind)}-${s.index}', ['kill-${_s(s.kind)}', '${s.index}']);
+  void moveStream(PaStream s, PaDevice target) => _run('move-${_sk(s.kind)}-${s.index}', (a, cb, ud) {
+    final f = _isSink(s.kind) ? _pa!.move_sink_input_by_name : _pa!.move_source_output_by_name;
+    return f(_ctx, s.index, _s(a)(target.name), cb, ud);
+  });
 
   @override
-  void setCardProfile(PaCard c, String profile) =>
-      _run('profile-${c.index}', ['set-card-profile', c.name, profile]);
+  void killStream(PaStream s) => _run('kill-${_sk(s.kind)}-${s.index}', (a, cb, ud) {
+    final f = _isSink(s.kind) ? _pa!.kill_sink_input : _pa!.kill_source_output;
+    return f(_ctx, s.index, cb, ud);
+  });
+
+  @override
+  void setCardProfile(PaCard c, String profile) => _run(
+    'profile-${c.index}',
+    (a, cb, ud) => _pa!.set_card_profile_by_name(_ctx, _s(a)(c.name), _s(a)(profile), cb, ud),
+  );
+
+  // --- level meters --------------------------------------------------------------------
 
   @override
   Stream<double> meter(String source, {int? streamIndex}) {
     late StreamController<double> ctrl;
-    Process? proc;
+    int? id;
     ctrl = StreamController<double>(
-      onListen: () async {
-        try {
-          proc = await startTied('parec', [
-            '--raw',
-            '--format=float32le',
-            '--channels=1',
-            '--rate=8000',
-            '--latency-msec=40',
-            '--client-name=pavucontrol-flutter',
-            '--property=application.id=$meterAppId',
-            '--property=media.role=abstract',
-            '--property=node.passive=true',
-            '-d',
-            source,
-            if (streamIndex != null) '--monitor-stream=$streamIndex',
-          ]);
-          if (ctrl.isClosed) {
-            stopTied(proc);
-            return;
-          }
-          final carry = BytesBuilder(copy: false);
-          proc!.stdout.listen((chunk) {
-            carry.add(chunk);
-            final bytes = carry.takeBytes();
-            final usable = bytes.length - bytes.length % 4;
-            if (usable < bytes.length) carry.add(bytes.sublist(usable));
-            if (usable == 0) return;
-            final bd = ByteData.sublistView(Uint8List.fromList(bytes.sublist(0, usable)));
-            var peak = 0.0;
-            for (var i = 0; i < usable; i += 4) {
-              final s = bd.getFloat32(i, Endian.little).abs();
-              if (s > peak) peak = s;
-            }
-            if (!ctrl.isClosed) ctrl.add(peak.clamp(0.0, 1.0));
-          });
-          proc!.stderr.drain<void>();
-        } catch (_) {
-          // parec missing: meter just stays empty.
-        }
+      onListen: () {
+        if (_disposed) return;
+        final m = _Meter(source, streamIndex, ctrl);
+        id = _nextMeter++;
+        _meters[id!] = m;
+        if (_ready) _openMeter(m);
       },
       onCancel: () {
-        stopTied(proc);
+        final m = _meters.remove(id);
+        if (m != null) _closeMeterStream(m);
         ctrl.close();
       },
     );
     return ctrl.stream;
   }
 
+  /// Peak-detecting record stream, as pavucontrol does it: the server hands us one float32
+  /// peak value per 40 ms instead of raw audio.
+  void _openMeter(_Meter m) {
+    final pa = _pa!;
+    final id = _meters.entries.firstWhere((e) => e.value == m).key;
+    using((a) {
+      final ss = a<pa_sample_spec>()
+        ..ref.format = paSampleFloat32le
+        ..ref.rate = 25
+        ..ref.channels = 1;
+      final props = pa.proplist_new();
+      void set(String k, String v) =>
+          pa.proplist_sets(props, k.toNativeUtf8(allocator: a), v.toNativeUtf8(allocator: a));
+      set('application.id', meterAppId);
+      set('media.role', 'abstract');
+      set('node.passive', 'true');
+      final s = pa.stream_new_with_proplist(_ctx, 'Peak detect'.toNativeUtf8(allocator: a), ss, nullptr, props);
+      pa.proplist_free(props);
+      if (s == nullptr) return;
+      if (m.streamIndex != null && pa.stream_set_monitor_stream(s, m.streamIndex!) < 0) {
+        pa.stream_unref(s);
+        return;
+      }
+      pa.stream_set_read_callback(s, _readCb.nativeFunction, Pointer.fromAddress(id));
+      final attr = a<pa_buffer_attr>()
+        ..ref.maxlength = paInvalidIndex
+        ..ref.tlength = paInvalidIndex
+        ..ref.prebuf = paInvalidIndex
+        ..ref.minreq = paInvalidIndex
+        ..ref.fragsize = sizeOf<Float>();
+      if (pa.stream_connect_record(
+            s,
+            m.source.toNativeUtf8(allocator: a),
+            attr,
+            paStreamDontMove | paStreamPeakDetect | paStreamAdjustLatency,
+          ) <
+          0) {
+        pa.stream_set_read_callback(s, nullptr, nullptr);
+        pa.stream_unref(s);
+        return;
+      }
+      m.stream = s;
+    });
+    _kick();
+  }
+
+  void _closeMeterStream(_Meter m) {
+    if (m.stream == nullptr) return;
+    final pa = _pa!;
+    pa.stream_set_read_callback(m.stream, nullptr, nullptr);
+    pa.stream_disconnect(m.stream);
+    pa.stream_unref(m.stream);
+    m.stream = nullptr;
+  }
+
+  void _onRead(Pointer<Void> s, int nbytes, Pointer<Void> ud) {
+    final m = _meters[ud.address];
+    final pa = _pa!;
+    final data = calloc<Pointer<Void>>();
+    final len = calloc<Size>();
+    var peak = -1.0;
+    try {
+      while (pa.stream_peek(s, data, len) == 0 && len.value > 0) {
+        if (data.value != nullptr) {
+          final f = data.value.cast<Float>();
+          for (var k = 0; k < len.value ~/ 4; k++) {
+            final v = f[k].abs();
+            if (v > peak) peak = v;
+          }
+        }
+        pa.stream_drop(s);
+      }
+    } finally {
+      calloc.free(data);
+      calloc.free(len);
+    }
+    if (m != null && peak >= 0 && !m.ctrl.isClosed) m.ctrl.add(peak.clamp(0.0, 1.0));
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _debounce?.cancel();
-    stopTied(_subscriber);
+    _retry?.cancel();
+    _tick?.cancel();
+    final pa = _pa;
+    if (pa == null) return;
+    if (_ctx != nullptr) _teardownContext();
+    _meters.clear();
+    pa.mainloop_free(_ml);
+    _ml = nullptr;
+    for (final cb in [
+      _stateCb,
+      _subscribeCb,
+      _successCb,
+      _sinkCb,
+      _sourceCb,
+      _sinkInputCb,
+      _sourceOutputCb,
+      _cardCb,
+      _serverCb,
+      _readCb,
+    ]) {
+      cb.close();
+    }
   }
 }
 
