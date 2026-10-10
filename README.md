@@ -19,7 +19,7 @@ pixi global install -c https://prefix.dev/nandi-testing pavucontrol_flutter
 ```
 
 ## Requirements
-- `libpulse.so.0` at runtime — Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)
+- The system's `libpulse.so.0` at runtime (not bundled, also for pixi installs) — Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)
 - Flutter SDK with Linux desktop deps: `sudo pacman -S clang cmake ninja pkgconf gtk3`
 
 ## Run

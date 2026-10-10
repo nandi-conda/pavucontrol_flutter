@@ -104,7 +104,7 @@ class LibpulseBackend extends PulseBackend {
       } catch (_) {
         state.value = const PaState(
           loaded: true,
-          error: 'libpulse was not found. Install libpulse / pulseaudio-client.',
+          error: 'libpulse was not found. Install your distribution\'s libpulse (libpulse0 / pulseaudio-libs).',
         );
         return;
       }
