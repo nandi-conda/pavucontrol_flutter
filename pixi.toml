@@ -12,6 +12,7 @@ ninja = "*"
 pkg-config = "*"
 clangxx = "*"
 gtk3 = "*"
+pulseaudio-client = "*"  # provides libpulse.so.0 at runtime
 glib = ">=2.90.0,<3"
 
 [package]
