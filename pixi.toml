@@ -1,6 +1,6 @@
 [workspace]
 preview = ["pixi-build"]
-name = "pavucontrol_flutter"
+name = "volume"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
@@ -21,7 +21,7 @@ pcre2 = "*"
 bzip2 = "*"
 
 [package]
-name = "pavucontrol_flutter"
+name = "volume"
 version = "2.0.0"
 
 # Built from source by recipe/recipe.yaml.
@@ -30,9 +30,9 @@ backend = { name = "pixi-build-rattler-build", version = "*" }
 
 [tasks]
 deps = "git submodule update --init vendor/webby"
-build = { cmd = "nim c -d:release --hints:off -o:build/pavucontrol_flutter src/pavucontrol.nim", depends-on = ["deps"] }
-run = { cmd = "./build/pavucontrol_flutter", depends-on = ["build"] }
-mock = { cmd = "./build/pavucontrol_flutter", env = { PAVU_MOCK = "1" }, depends-on = ["build"] }
+build = { cmd = "nim c -d:release --hints:off -o:build/volume src/volume.nim", depends-on = ["deps"] }
+run = { cmd = "./build/volume", depends-on = ["build"] }
+mock = { cmd = "./build/volume", env = { PAVU_MOCK = "1" }, depends-on = ["build"] }
 test = { cmd = "nim r --hints:off tests/test_model.nim", depends-on = ["deps"] }
 install-desktop = { cmd = "packaging/install-local.sh", depends-on = ["build"] }
 package = "pixi build --output-dir output"

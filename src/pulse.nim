@@ -16,7 +16,7 @@ import model
 
 const
   pulseH = "<pulse/pulseaudio.h>"
-  meterAppId* = "dev.v.pavucontrol_flutter.meter"   ## marks our own meter streams, hidden from Recording
+  meterAppId* = "dev.v.volume.meter"   ## marks our own meter streams, hidden from Recording
 
 type
   PaContext {.importc: "pa_context", header: pulseH, incompleteStruct.} = object
@@ -733,7 +733,7 @@ proc onState(c: ptr PaContext, ud: pointer) {.cdecl.} =
 
 proc connect() =
   let p = pa_proplist_new()
-  discard pa_proplist_sets(p, "application.id", "dev.v.pavucontrol_flutter")
+  discard pa_proplist_sets(p, "application.id", "dev.v.volume")
   discard pa_proplist_sets(p, "application.icon_name", "multimedia-volume-control")
   ctx = pa_context_new_with_proplist(pa_glib_mainloop_get_api(mainloop), "Volume Control", p)
   pa_proplist_free(p)

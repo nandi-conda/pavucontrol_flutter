@@ -6,8 +6,8 @@
     {
       "name": "Volume Control",
       "description": "PulseAudio / PipeWire volume control",
-      "command": ["{{ PREFIX }}/bin/pavucontrol_flutter"],
-      "icon": "{{ MENU_DIR }}/dev.v.pavucontrol_flutter.png",
+      "command": ["{{ PREFIX }}/bin/volume"],
+      "icon": "{{ MENU_DIR }}/dev.v.volume.png",
       "activate": false,
       "terminal": false,
       "platforms": {
@@ -15,7 +15,7 @@
           "GenericName": "Audio Mixer",
           "Categories": ["AudioVideo", "Audio", "Mixer"],
           "Keywords": ["audio", "sound", "volume", "mixer", "pulseaudio", "pipewire"],
-          "StartupWMClass": "dev.v.pavucontrol_flutter"
+          "StartupWMClass": "dev.v.volume"
         }
       }
     }

@@ -1,8 +1,9 @@
-# pavucontrol_flutter
+# volume
 
 A Linux clone of **pavucontrol** (PulseAudio Volume Control), written in Nim on
 [nimkit](https://github.com/nandi-conda/webby/tree/main/framework), webby's small native UI framework (GTK 3 here).
-It started as a Flutter app, hence the name; the package keeps it so existing installs upgrade.
+It started as a Flutter app called `pavucontrol_flutter`; if you installed that, remove it and install `volume`:
+`pixi global uninstall pavucontrol_flutter`.
 
 Works with PulseAudio and PipeWire (via pipewire-pulse) by talking to the server directly through libpulse, on
 GLib's main loop, without shelling out to any CLI.
@@ -21,7 +22,7 @@ GLib's main loop, without shelling out to any CLI.
 Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing),
 together with the conda-forge packages they need, so the channel works on its own:
 ```sh
-pixi global install -c https://prefix.dev/nandi-testing pavucontrol_flutter
+pixi global install -c https://prefix.dev/nandi-testing volume
 ```
 This also adds a "Volume Control" entry to your desktop's app menu (via menuinst).
 
@@ -36,7 +37,7 @@ pixi run package        # the conda package, into output/
 
 ## Layout
 ```
-src/pavucontrol.nim   the UI: tabs, tiles per stream / device / card, filters
+src/volume.nim   the UI: tabs, tiles per stream / device / card, filters
 src/pulse.nim         libpulse (asynchronous API on the GLib main loop), request coalescing, level meters, mock
 src/model.nim         devices, streams, cards; volume maths and formatting
 vendor/webby          nimkit (framework/src)

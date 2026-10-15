@@ -3,4 +3,4 @@
 
 proc g_set_prgname(name: cstring) {.importc, cdecl.}
 
-g_set_prgname("dev.v.pavucontrol_flutter")
+g_set_prgname("dev.v.volume")

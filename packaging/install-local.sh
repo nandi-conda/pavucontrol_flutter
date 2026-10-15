@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Install the .desktop entry and icons for the current user.
-# Usage: install-local.sh [path/to/pavucontrol_flutter binary]
+# Usage: install-local.sh [path/to/volume binary]
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-id=dev.v.pavucontrol_flutter
-bin=${1:-$here/../build/pavucontrol_flutter}
+id=dev.v.volume
+bin=${1:-$here/../build/volume}
 data=${XDG_DATA_HOME:-$HOME/.local/share}
 
 mkdir -p "$data/applications"

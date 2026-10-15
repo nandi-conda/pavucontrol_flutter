@@ -10,7 +10,7 @@ import prgname   # before nimkit, which starts GTK
 import nimkit
 import model, pulse
 
-nimkit.appName = "pavucontrol_flutter"
+nimkit.appName = "volume"
 
 proc gtk_window_set_default_icon_name(name: cstring) {.importc, cdecl.}
 
@@ -470,5 +470,5 @@ buildFooter()
 sync()
 pulse.onChange = sync
 pulse.start()
-gtk_window_set_default_icon_name("dev.v.pavucontrol_flutter")
+gtk_window_set_default_icon_name("dev.v.volume")
 run("Volume Control", column(tabRow, scroll(list).expand, footer), 760, 560)
