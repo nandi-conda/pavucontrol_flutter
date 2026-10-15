@@ -1,7 +1,7 @@
 # Built by pixi-build (pixi-build-rattler-build); run `pixi run package`.
 context:
   name: pavucontrol_flutter
-  version: "1.0.0"
+  version: "2.0.0"
   app_id: dev.v.pavucontrol_flutter
 
 package:
@@ -9,19 +9,19 @@ package:
   version: ${{ version }}
 
 build:
-  number: 2
+  number: 0
   script: build.sh
 
 requirements:
   build:
-    - patchelf
-    - flutter-sdk
-    - cmake
-    - ninja
+    - ${{ compiler('c') }}
+    - nim >=2.2
     - pkg-config
-    - clangxx
   host:
     - gtk3
+    - glib >=2.90.0,<3
+    # libpulse headers and .pc files; at runtime the app links pulseaudio-libs' copy
+    - pulseaudio-client
     # .pc files that gtk3's Requires(.private) chain needs; conda splits them from lib* runtime pkgs
     - zlib
     - expat
@@ -30,11 +30,13 @@ requirements:
     - libffi
     - pcre2
     - bzip2
-    - glib >=2.90.0,<3
   run:
     - gtk3
     - glib >=2.90.0,<3
-    - pulseaudio-libs  # libpulse.so.0 (loaded via dart:ffi) without pactl & co; packages/pulseaudio-libs
+    - pulseaudio-libs  # libpulse.so.0 + libpulse-mainloop-glib.so.0 without pactl & co; packages/pulseaudio-libs
+  ignore_run_exports:
+    from_package:
+      - pulseaudio-client
 
 tests:
   - package_contents:
@@ -47,5 +49,5 @@ tests:
         - Menu/${{ app_id }}.png
 
 about:
-  summary: Flutter clone of pavucontrol (PulseAudio / PipeWire volume control)
+  summary: Volume control for PulseAudio / PipeWire (a pavucontrol clone in Nim, on nimkit)
   homepage: https://github.com/nandi-conda/pavucontrol_flutter

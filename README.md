@@ -1,38 +1,45 @@
 # pavucontrol_flutter
 
-A Flutter (Linux desktop) clone of **pavucontrol** — PulseAudio Volume Control — with every menu opening instantly (no menu, page, tab, ripple or button-state animations).
+A Linux clone of **pavucontrol** (PulseAudio Volume Control), written in Nim on
+[nimkit](https://github.com/nandi-conda/webby/tree/main/framework), webby's small native UI framework (GTK 3 here).
+It started as a Flutter app, hence the name; the package keeps it so existing installs upgrade.
 
-Works with PulseAudio and PipeWire (via pipewire-pulse) by talking to the server directly through libpulse (`dart:ffi`), without shelling out to any CLI.
+Works with PulseAudio and PipeWire (via pipewire-pulse) by talking to the server directly through libpulse, on
+GLib's main loop, without shelling out to any CLI.
 
 ## Features
-- **Playback / Recording**: per-app volume, mute, lock/unlock channels, move stream to another device ("on …" / "from …"), live level meter, right-click → Terminate
-- **Mouse wheel** over any volume slider: ±5% per notch (Shift: ±1%), capped at 153%
-- **Output / Input Devices**: volume (with dB + Silence / 100% / Base marks), mute, per-channel sliders, set as fallback, port selection, latency offset (Advanced)
+- **Playback / Recording**: per-app volume, mute, lock/unlock channels, move stream to another device ("on …" /
+  "from …"), live level meter, Terminate
+- **Mouse wheel** or arrow keys over a volume slider: ±5% per step, up to 153%
+- **Output / Input Devices**: volume (with dB and Silence / 100% / Base marks), mute, per-channel sliders, set as
+  default, port selection, latency offset (Advanced)
 - **Configuration**: card profile selection
 - "Show:" filters (Applications / Virtual Streams, Hardware / Virtual / Monitors …)
-- Live updates via libpulse event subscription; follows system light/dark theme
+- Live updates via libpulse event subscription; native GTK widgets, so it follows the desktop theme
 
 ## Install
-Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing), together with the conda-forge packages they need, so the channel works on its own:
+Prebuilt packages are published to [prefix.dev/channels/nandi-testing](https://prefix.dev/channels/nandi-testing),
+together with the conda-forge packages they need, so the channel works on its own:
 ```sh
 pixi global install -c https://prefix.dev/nandi-testing pavucontrol_flutter
 ```
 This also adds a "Volume Control" entry to your desktop's app menu (via menuinst).
 
-## Requirements
-- `libpulse.so.0` at runtime (pixi installs pull in `pulseaudio-libs`, libpulse without the CLIs) — otherwise Arch: `sudo pacman -S libpulse` (already present with PipeWire's `pipewire-pulse`)
-- Flutter SDK with Linux desktop deps: `sudo pacman -S clang cmake ninja pkgconf gtk3`
-
-## Run
+## Build and run
+nimkit comes from the webby repo as a git submodule (`vendor/webby`); the pixi tasks fetch it.
 ```sh
-flutter pub get
-flutter run -d linux                    # real audio server
-PAVU_MOCK=1 flutter run -d linux        # fake data, for UI work
-flutter build linux --release           # -> build/linux/x64/release/bundle/
+pixi run run            # build into build/ and run against your audio server
+pixi run mock           # made-up devices and streams (PAVU_MOCK=1), for UI work
+pixi run test
+pixi run package        # the conda package, into output/
 ```
 
-## How "no animations" is done
-- Dropdowns use `MenuAnchor(animated: false)`; context menu uses `showMenu(popUpAnimationStyle: AnimationStyle.noAnimation)`
-- `TabController(animationDuration: Duration.zero)` and no `TabBarView` swiping
-- `NoSplash` everywhere, button hover/press via zero-duration state colors instead of fading ink
-- No-op `PageTransitionsTheme`, `themeAnimationDuration: Duration.zero`, custom (non-animated) expanders
+## Layout
+```
+src/pavucontrol.nim   the UI: tabs, tiles per stream / device / card, filters
+src/pulse.nim         libpulse (asynchronous API on the GLib main loop), request coalescing, level meters, mock
+src/model.nim         devices, streams, cards; volume maths and formatting
+vendor/webby          nimkit (framework/src)
+packaging/            desktop entry, icons, menuinst menu
+packages/             pulseaudio-libs (libpulse without the CLIs) and mesa, published alongside
+```

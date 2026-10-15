@@ -1,27 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$SRC_DIR
+src=$RECIPE_DIR/..
+# nimkit comes from the webby submodule (CI's ci/pre-package.sh fetches it; so does this, for local builds).
+[ -d "$src/vendor/webby/framework/src" ] || git -C "$src" submodule update --init --depth 1 vendor/webby
 # rattler-build's own path-source copy fails here, so copy the tree by hand.
-tar -C "$RECIPE_DIR/.." --exclude=./.pixi --exclude=./.git --exclude=./build --exclude=./.dart_tool \
-  --exclude=./output --exclude=./linux/flutter/ephemeral -cf - . | tar -C "$root" -xf -
+tar -C "$src" --exclude=./.pixi --exclude=./.git --exclude=./build --exclude=./output --exclude=./nimcache \
+  -cf - . | tar -C "$root" -xf -
 cd "$root"
 id=dev.v.pavucontrol_flutter
-bundle=$root/build/linux/x64/release/bundle
-pkg=$root/linux/packaging
+pkg=$root/packaging
 
-export HOME=$SRC_DIR/.home PUB_CACHE=$SRC_DIR/.pub-cache
-export CC=$BUILD_PREFIX/bin/clang CXX=$BUILD_PREFIX/bin/clang++
 export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig
-export CFLAGS="-I$PREFIX/include" CXXFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib -Wl,-rpath-link,$PREFIX/lib"
-pkg-config --print-errors --exists gtk+-3.0 || { ls "$PREFIX/lib/pkgconfig" | head -50; exit 1; }
-flutter config --no-analytics --no-cli-animations >/dev/null 2>&1 || true
-flutter pub get
-flutter build linux --release
-
-mkdir -p "$PREFIX/lib/pavucontrol_flutter" "$PREFIX/bin"
-cp -a "$bundle/." "$PREFIX/lib/pavucontrol_flutter/"
-# Flutter resolves data/ and lib/ relative to the real executable, so a symlink works.
-ln -sf ../lib/pavucontrol_flutter/pavucontrol_flutter "$PREFIX/bin/pavucontrol_flutter"
+pkg-config --print-errors --exists gtk+-3.0 libpulse libpulse-mainloop-glib
+mkdir -p "$PREFIX/bin"
+nim c -d:release --hints:off --nimcache:"$root/.nimcache" --cc:gcc --gcc.exe="$CC" --gcc.linkerexe="$CC" \
+  --passC:"$CFLAGS" --passL:"$LDFLAGS" -o:"$PREFIX/bin/pavucontrol_flutter" src/pavucontrol.nim
 
 install -Dm644 "$pkg/$id.desktop" "$PREFIX/share/applications/$id.desktop"
 # menuinst: conda / `pixi global install` turn this into a desktop menu entry.

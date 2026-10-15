@@ -1,34 +1,40 @@
 [workspace]
 preview = ["pixi-build"]
 name = "pavucontrol_flutter"
-channels = ["conda-forge", "https://prefix.dev/hadron"]
+channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [dependencies]
-flutter-sdk = "*"  # from the hadron channel
-patchelf = "*"
-cmake = "*"
-ninja = "*"
+nim = ">=2.2"
+c-compiler = "*"
 pkg-config = "*"
-clangxx = "*"
 gtk3 = "*"
-pulseaudio-client = "*"  # libpulse.so.0 for `flutter run`/tests (installs ship pulseaudio-libs instead)
 glib = ">=2.90.0,<3"
+pulseaudio-client = "*"  # libpulse headers and libpulse.so.0 for `pixi run`; installs ship pulseaudio-libs instead
+# .pc files that gtk3's Requires(.private) chain needs; conda splits them from lib* runtime pkgs
+zlib = "*"
+expat = "*"
+libpng = "*"
+freetype = "*"
+libffi = "*"
+pcre2 = "*"
+bzip2 = "*"
 
 [package]
 name = "pavucontrol_flutter"
-version = "1.0.0"
+version = "2.0.0"
 
 # Built from source by recipe/recipe.yaml.
 [package.build]
 backend = { name = "pixi-build-rattler-build", version = "*" }
 
 [tasks]
-deps = "flutter pub get"
-run = { cmd = "flutter run -d linux", depends-on = ["deps"] }
-test = { cmd = "flutter test", depends-on = ["deps"] }
-build = { cmd = "flutter build linux --release", depends-on = ["deps"] }
-install-desktop = { cmd = "linux/packaging/install-local.sh", depends-on = ["build"] }
+deps = "git submodule update --init vendor/webby"
+build = { cmd = "nim c -d:release --hints:off -o:build/pavucontrol_flutter src/pavucontrol.nim", depends-on = ["deps"] }
+run = { cmd = "./build/pavucontrol_flutter", depends-on = ["build"] }
+mock = { cmd = "./build/pavucontrol_flutter", env = { PAVU_MOCK = "1" }, depends-on = ["build"] }
+test = { cmd = "nim r --hints:off tests/test_model.nim", depends-on = ["deps"] }
+install-desktop = { cmd = "packaging/install-local.sh", depends-on = ["build"] }
 package = "pixi build --output-dir output"
 package-mesa = "pixi build --path packages/mesa --output-dir output"
 package-pulseaudio-libs = "pixi build --path packages/pulseaudio-libs --output-dir output"

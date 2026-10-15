@@ -1,0 +1,3 @@
+[submodule "vendor/webby"]
+	path = vendor/webby
+	url = https://github.com/nandi-conda/webby
