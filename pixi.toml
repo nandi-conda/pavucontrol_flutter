@@ -32,6 +32,7 @@ backend = { name = "pixi-build-rattler-build", version = "*" }
 deps = "git submodule update --init vendor/webby"
 build = { cmd = "nim c -d:release --hints:off -o:build/volume src/volume.nim", depends-on = ["deps"] }
 run = { cmd = "./build/volume", depends-on = ["build"] }
+volume = { cmd = "./build/volume", depends-on = ["build"], description = "Build and launch the app" }
 mock = { cmd = "./build/volume", env = { PAVU_MOCK = "1" }, depends-on = ["build"] }
 test = { cmd = "nim r --hints:off tests/test_model.nim", depends-on = ["deps"] }
 install-desktop = { cmd = "packaging/install-local.sh", depends-on = ["build"] }

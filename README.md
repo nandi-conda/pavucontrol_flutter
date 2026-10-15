@@ -29,7 +29,7 @@ This also adds a "Volume Control" entry to your desktop's app menu (via menuinst
 ## Build and run
 nimkit comes from the webby repo as a git submodule (`vendor/webby`); the pixi tasks fetch it.
 ```sh
-pixi run run            # build into build/ and run against your audio server
+pixi run volume         # build into build/ and run against your audio server
 pixi run mock           # made-up devices and streams (PAVU_MOCK=1), for UI work
 pixi run test
 pixi run package        # the conda package, into output/
