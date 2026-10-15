@@ -50,4 +50,4 @@ tests:
 
 about:
   summary: Volume control for PulseAudio / PipeWire (a pavucontrol clone in Nim, on nimkit)
-  homepage: https://github.com/nandi-conda/pavucontrol_flutter
+  homepage: https://github.com/nandi-conda/volume
